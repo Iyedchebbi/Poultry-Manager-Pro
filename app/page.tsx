@@ -58,15 +58,22 @@ export default function PoultryManager() {
   const [fullName, setFullName] = useState('');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'add' | 'reports' | 'profile'>('dashboard');
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
 
   const t = translations[lang];
   const userDisplayName = session?.user?.user_metadata?.full_name || session?.user?.email?.split('@')[0] || 'User';
+  const userAvatar = session?.user?.user_metadata?.avatar_url || null;
 
   // Auth & Session Management
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session?.user?.user_metadata?.full_name) {
+        setFullName(session.user.user_metadata.full_name);
+      }
       setLoadingAuth(false);
     });
 
@@ -138,6 +145,52 @@ export default function PoultryManager() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session?.user) return;
+    setIsUpdatingProfile(true);
+
+    const { error } = await supabase.auth.updateUser({
+      data: { 
+        full_name: fullName,
+        avatar_url: profileImage || session.user.user_metadata.avatar_url
+      }
+    });
+
+    setIsUpdatingProfile(false);
+    if (error) {
+      alert(error.message);
+    } else {
+      alert(t.profileUpdated);
+      setIsSettingsOpen(false);
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !session?.user) return;
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${session.user.id}-${Math.random()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      setProfileImage(publicUrl);
+    } catch (error: any) {
+      alert(error.message);
+    }
   };
 
   const addEntry = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -344,7 +397,6 @@ export default function PoultryManager() {
             >
               <option value="en" className="bg-[#020617]">EN</option>
               <option value="fr" className="bg-[#020617]">FR</option>
-              <option value="ar" className="bg-[#020617]">AR</option>
             </select>
             <Languages size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
           </div>
@@ -593,43 +645,107 @@ export default function PoultryManager() {
               exit={{ opacity: 0, y: 20 }}
               className="p-6 space-y-8"
             >
-              <div className="text-center pt-8">
-                <div className="relative inline-block">
-                  <div className="w-32 h-32 bg-white/5 rounded-[3rem] shadow-2xl border border-white/10 flex items-center justify-center text-white mx-auto mb-6">
-                    <User size={64} strokeWidth={1.5} />
-                  </div>
-                  <div className="absolute bottom-6 right-0 w-10 h-10 bg-[#ccff00] rounded-2xl border-4 border-[#020617] flex items-center justify-center text-[#0f172a] shadow-lg">
-                    <Plus size={18} strokeWidth={3} />
-                  </div>
-                </div>
-                <h2 className="text-3xl font-display font-bold text-white tracking-tight">{userDisplayName}</h2>
-                <p className="text-sm text-slate-500 font-medium">{session.user.email}</p>
-              </div>
-
-              <div className="space-y-3">
-                {[
-                  { label: t.profile, icon: User, color: 'text-white' },
-                  { label: t.settings, icon: SettingsIcon, color: 'text-white' },
-                  { label: t.logout, icon: LogOut, color: 'text-rose-400', onClick: handleLogout }
-                ].map((item, i) => (
-                  <button 
-                    key={i} 
-                    onClick={item.onClick}
-                    className="w-full bg-white/5 border border-white/10 p-5 rounded-3xl flex items-center justify-between shadow-sm hover:shadow-md active:scale-[0.99] transition-all backdrop-blur-xl"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center ${item.color}`}>
-                        <item.icon size={18} strokeWidth={2.5} />
+              {!isSettingsOpen ? (
+                <>
+                  <div className="text-center pt-8">
+                    <div className="relative inline-block">
+                      <div className="w-32 h-32 bg-white/5 rounded-[3rem] shadow-2xl border border-white/10 flex items-center justify-center text-white mx-auto mb-6 overflow-hidden">
+                        {userAvatar ? (
+                          <img src={userAvatar} alt="Avatar" className="w-full h-full object-cover" />
+                        ) : (
+                          <User size={64} strokeWidth={1.5} />
+                        )}
                       </div>
-                      <span className={`text-sm font-bold uppercase tracking-widest ${item.color}`}>{item.label}</span>
                     </div>
-                    <ChevronRight size={16} className="text-slate-700" />
-                  </button>
-                ))}
-              </div>
+                    <h2 className="text-3xl font-display font-bold text-white tracking-tight">{userDisplayName}</h2>
+                    <p className="text-sm text-slate-500 font-medium">{session.user.email}</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {[
+                      { label: t.settings, icon: SettingsIcon, color: 'text-white', onClick: () => setIsSettingsOpen(true) },
+                      { label: t.logout, icon: LogOut, color: 'text-rose-400', onClick: handleLogout }
+                    ].map((item, i) => (
+                      <button 
+                        key={i} 
+                        onClick={item.onClick}
+                        className="w-full bg-white/5 border border-white/10 p-5 rounded-3xl flex items-center justify-between shadow-sm hover:shadow-md active:scale-[0.99] transition-all backdrop-blur-xl"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center ${item.color}`}>
+                            <item.icon size={18} strokeWidth={2.5} />
+                          </div>
+                          <span className={`text-sm font-bold uppercase tracking-widest ${item.color}`}>{item.label}</span>
+                        </div>
+                        <ChevronRight size={16} className="text-slate-700" />
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-8">
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => setIsSettingsOpen(false)}
+                      className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-slate-500 hover:text-white transition-colors"
+                    >
+                      <ChevronRight size={20} className="rotate-180" />
+                    </button>
+                    <h2 className="text-2xl font-display font-bold text-white">{t.settings}</h2>
+                  </div>
+
+                  <form onSubmit={handleUpdateProfile} className="space-y-6 bg-white/5 p-8 rounded-[2.5rem] border border-white/10 backdrop-blur-xl">
+                    <div className="flex flex-col items-center mb-6">
+                      <div className="relative group">
+                        <div className="w-24 h-24 bg-white/5 rounded-[2rem] border border-white/10 flex items-center justify-center text-white overflow-hidden">
+                          {profileImage || userAvatar ? (
+                            <img src={profileImage || userAvatar} alt="Avatar" className="w-full h-full object-cover" />
+                          ) : (
+                            <User size={40} strokeWidth={1.5} />
+                          )}
+                        </div>
+                        <label className="absolute bottom-0 right-0 w-8 h-8 bg-[#ccff00] rounded-xl flex items-center justify-center text-[#0f172a] cursor-pointer shadow-lg hover:scale-110 transition-transform">
+                          <Plus size={16} strokeWidth={3} />
+                          <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                        </label>
+                      </div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mt-3">{t.uploadImage}</p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{t.fullName}</label>
+                      <input 
+                        type="text" 
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        required 
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{t.email}</label>
+                      <input 
+                        type="email" 
+                        value={session.user.email}
+                        disabled
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-slate-500 outline-none cursor-not-allowed"
+                      />
+                    </div>
+
+                    <button 
+                      type="submit" 
+                      disabled={isUpdatingProfile}
+                      className="w-full bg-[#ccff00] text-[#0f172a] py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-[#ccff00]/20 hover:shadow-xl hover:shadow-[#ccff00]/30 active:scale-[0.98] transition-all mt-4 border border-[#ccff00] disabled:opacity-50"
+                    >
+                      {isUpdatingProfile ? t.saving : t.save}
+                    </button>
+                  </form>
+                </div>
+              )}
 
               <div className="pt-8 text-center">
-                <p className="text-[9px] font-black text-slate-700 uppercase tracking-[0.3em]">Poultry Manager Pro v2.0</p>
+                <p className="text-[9px] font-black text-slate-700 uppercase tracking-[0.3em]">Chicken Manager Pro v2.0</p>
               </div>
             </motion.div>
           )}
