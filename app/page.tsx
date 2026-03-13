@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Bird, 
@@ -45,8 +45,15 @@ interface PoultryLog {
   created_at?: string;
 }
 
+interface Profile {
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+}
+
 export default function PoultryManager() {
   const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -61,19 +68,18 @@ export default function PoultryManager() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [editingLog, setEditingLog] = useState<PoultryLog | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
 
   const t = translations[lang];
-  const userDisplayName = session?.user?.user_metadata?.full_name || session?.user?.email?.split('@')[0] || 'User';
-  const userAvatar = session?.user?.user_metadata?.avatar_url || null;
+  const userDisplayName = profile?.full_name || session?.user?.email?.split('@')[0] || 'User';
+  const userAvatar = profile?.avatar_url || null;
 
   // Auth & Session Management
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session?.user?.user_metadata?.full_name) {
-        setFullName(session.user.user_metadata.full_name);
-      }
       setLoadingAuth(false);
     });
 
@@ -86,14 +92,64 @@ export default function PoultryManager() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const fetchProfile = useCallback(async () => {
+    if (!session?.user) return;
+    
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', session.user.id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching profile:', error);
+      // If profile doesn't exist, create it
+      if (error.code === 'PGRST116') {
+        const newProfile = {
+          id: session.user.id,
+          full_name: session.user.user_metadata.full_name || '',
+          avatar_url: session.user.user_metadata.avatar_url || null
+        };
+        const { data: createdData, error: createError } = await supabase
+          .from('profiles')
+          .upsert(newProfile)
+          .select()
+          .single();
+        
+        if (!createError && createdData) {
+          setProfile(createdData);
+          setFullName(createdData.full_name || '');
+        }
+      }
+    } else if (data) {
+      setProfile(data);
+      setFullName(data.full_name || '');
+    }
+  }, [session]);
+
+  const fetchLogs = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('poultry_logs')
+      .select('*')
+      .order('date', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching logs:', error);
+    } else {
+      setLogs(data || []);
+    }
+  }, []);
+
   // Data Fetching
   useEffect(() => {
     if (session) {
       fetchLogs();
+      fetchProfile();
     } else {
       setLogs([]);
+      setProfile(null);
     }
-  }, [session]);
+  }, [session, fetchLogs, fetchProfile]);
 
   // Language Persistence
   useEffect(() => {
@@ -107,19 +163,6 @@ export default function PoultryManager() {
       localStorage.setItem('poultry_lang_v5', lang);
     }
   }, [lang, isLoaded]);
-
-  const fetchLogs = async () => {
-    const { data, error } = await supabase
-      .from('poultry_logs')
-      .select('*')
-      .order('date', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching logs:', error);
-    } else {
-      setLogs(data || []);
-    }
-  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,17 +195,21 @@ export default function PoultryManager() {
     if (!session?.user) return;
     setIsUpdatingProfile(true);
 
-    const { error } = await supabase.auth.updateUser({
-      data: { 
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert({
+        id: session.user.id,
         full_name: fullName,
-        avatar_url: profileImage || session.user.user_metadata.avatar_url
-      }
-    });
+        avatar_url: profileImage || profile?.avatar_url
+      })
+      .select()
+      .single();
 
     setIsUpdatingProfile(false);
     if (error) {
       alert(error.message);
     } else {
+      setProfile(data);
       alert(t.profileUpdated);
       setIsSettingsOpen(false);
     }
@@ -210,34 +257,47 @@ export default function PoultryManager() {
       notes: formData.get('notes') as string,
     };
 
-    const { data, error } = await supabase
-      .from('poultry_logs')
-      .insert([newLog])
-      .select();
+    const { data, error } = editingLog 
+      ? await supabase
+          .from('poultry_logs')
+          .update(newLog)
+          .eq('id', editingLog.id)
+          .select()
+      : await supabase
+          .from('poultry_logs')
+          .insert([newLog])
+          .select();
 
     if (error) {
-      console.error('Error adding log:', error);
-      alert('Failed to save record.');
+      console.error('Error saving log:', error);
     } else if (data) {
-      setLogs([data[0], ...logs]);
+      if (editingLog) {
+        setLogs(logs.map(l => l.id === editingLog.id ? data[0] : l));
+        setEditingLog(null);
+      } else {
+        setLogs([data[0], ...logs]);
+      }
       form.reset();
       setActiveTab('dashboard');
     }
   };
 
+  const startEdit = (log: PoultryLog) => {
+    setEditingLog(log);
+    setActiveTab('add');
+  };
+
   const deleteEntry = async (id: string) => {
-    if (window.confirm(t.confirmDelete)) {
-      const { error } = await supabase
-        .from('poultry_logs')
-        .delete()
-        .eq('id', id);
-        
-      if (error) {
-        console.error('Error deleting log:', error);
-        alert('Failed to delete record.');
-      } else {
-        setLogs(logs.filter(l => l.id !== id));
-      }
+    const { error } = await supabase
+      .from('poultry_logs')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting log:', error);
+    } else {
+      setLogs(logs.filter(l => l.id !== id));
+      setDeleteId(null);
     }
   };
 
@@ -483,10 +543,13 @@ export default function PoultryManager() {
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        <button onClick={() => startEdit(log)} className="w-9 h-9 bg-white/5 rounded-xl flex items-center justify-center text-slate-500 hover:text-[#ccff00] hover:bg-[#ccff00]/10 transition-all">
+                          <SettingsIcon size={14} />
+                        </button>
                         <button onClick={() => exportRecord(log, 'pdf')} className="w-9 h-9 bg-white/5 rounded-xl flex items-center justify-center text-slate-500 hover:text-[#ccff00] hover:bg-[#ccff00]/10 transition-all">
                           <FileText size={14} />
                         </button>
-                        <button onClick={() => deleteEntry(log.id)} className="w-9 h-9 bg-white/5 rounded-xl flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-400/10 transition-all">
+                        <button onClick={() => setDeleteId(log.id)} className="w-9 h-9 bg-white/5 rounded-xl flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-400/10 transition-all">
                           <Trash2 size={14} />
                         </button>
                       </div>
@@ -514,18 +577,27 @@ export default function PoultryManager() {
               className="p-6"
             >
               <div className="mb-8">
-                <h2 className="text-3xl font-display font-bold text-white tracking-tight mb-2">{t.newEntry}</h2>
-                <p className="text-xs text-slate-500 font-medium">Log today&apos;s metrics for your flock.</p>
+                <h2 className="text-3xl font-display font-bold text-white tracking-tight mb-2">{editingLog ? t.editRecord : t.newEntry}</h2>
+                <p className="text-xs text-slate-500 font-medium">{editingLog ? 'Update your flock metrics.' : 'Log today\'s metrics for your flock.'}</p>
               </div>
 
               <form onSubmit={addEntry} className="space-y-5 bg-white/5 p-8 rounded-[2.5rem] shadow-xl border border-white/10 backdrop-blur-xl">
+                {editingLog && (
+                  <button 
+                    type="button" 
+                    onClick={() => { setEditingLog(null); setActiveTab('dashboard'); }}
+                    className="text-[10px] font-black uppercase tracking-widest text-rose-400 mb-4 flex items-center gap-2"
+                  >
+                    <Trash2 size={12} /> {t.cancelEdit}
+                  </button>
+                )}
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{t.date}</label>
                   <input 
                     type="date" 
                     name="date" 
                     required 
-                    defaultValue={new Date().toISOString().split('T')[0]} 
+                    defaultValue={editingLog ? editingLog.date : new Date().toISOString().split('T')[0]} 
                     className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all"
                   />
                 </div>
@@ -533,32 +605,32 @@ export default function PoultryManager() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{t.count}</label>
-                    <input type="number" name="count" placeholder="0" required className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all" />
+                    <input type="number" name="count" defaultValue={editingLog?.count} placeholder="0" required className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{t.eggs}</label>
-                    <input type="number" name="eggs" placeholder="0" required className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all" />
+                    <input type="number" name="eggs" defaultValue={editingLog?.eggs} placeholder="0" required className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all" />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase tracking-widest text-emerald-400 ml-1">{t.income}</label>
-                    <input type="number" step="0.01" name="income" placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10 outline-none transition-all" />
+                    <input type="number" step="0.01" name="income" defaultValue={editingLog?.income} placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-400/10 outline-none transition-all" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase tracking-widest text-rose-400 ml-1">{t.expense}</label>
-                    <input type="number" step="0.01" name="expense" placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-rose-400 focus:ring-4 focus:ring-rose-400/10 outline-none transition-all" />
+                    <input type="number" step="0.01" name="expense" defaultValue={editingLog?.expense} placeholder="0.00" className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-rose-400 focus:ring-4 focus:ring-rose-400/10 outline-none transition-all" />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{t.notes}</label>
-                  <textarea name="notes" rows={3} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all resize-none" placeholder="Add observations..."></textarea>
+                  <textarea name="notes" defaultValue={editingLog?.notes} rows={3} className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm font-medium text-white placeholder-slate-600 focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all resize-none" placeholder="Add observations..."></textarea>
                 </div>
 
                 <button type="submit" className="w-full bg-[#ccff00] text-[#0f172a] py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-[#ccff00]/20 hover:shadow-xl hover:shadow-[#ccff00]/30 active:scale-[0.98] transition-all mt-4 border border-[#ccff00]">
-                  {t.save}
+                  {editingLog ? t.updateRecord : t.save}
                 </button>
               </form>
             </motion.div>
@@ -631,6 +703,42 @@ export default function PoultryManager() {
                       />
                     </div>
                   </div>
+                </div>
+              </div>
+
+              {/* Detailed History in Reports */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-display font-bold text-white uppercase tracking-widest">{t.detailedHistory}</h2>
+                </div>
+                <div className="space-y-3">
+                  {logs.map((log) => (
+                    <div key={log.id} className="bg-white/5 border border-white/10 p-4 rounded-[1.5rem] flex items-center gap-4 shadow-sm">
+                      <div className="bg-[#ccff00] w-12 h-12 rounded-2xl flex flex-col items-center justify-center">
+                        <span className="text-sm font-display font-bold text-[#0f172a] leading-none">{log.date.split('-')[2]}</span>
+                        <span className="text-[8px] font-black uppercase text-[#0f172a]/40 mt-1">{format(new Date(log.date), 'MMM')}</span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-white font-display font-bold text-sm mb-0.5">{log.date}</p>
+                        <div className="flex gap-3">
+                          <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                            <Egg size={10} className="text-[#ccff00]" /> {log.eggs}
+                          </span>
+                          <span className={`text-[10px] font-bold flex items-center gap-1 ${log.income - log.expense >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            <Coins size={10} /> {(log.income - log.expense).toFixed(2)} TND
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => startEdit(log)} className="w-9 h-9 bg-white/5 rounded-xl flex items-center justify-center text-slate-500 hover:text-[#ccff00] hover:bg-[#ccff00]/10 transition-all">
+                          <SettingsIcon size={14} />
+                        </button>
+                        <button onClick={() => setDeleteId(log.id)} className="w-9 h-9 bg-white/5 rounded-xl flex items-center justify-center text-slate-500 hover:text-rose-400 hover:bg-rose-400/10 transition-all">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </motion.div>
@@ -874,6 +982,44 @@ export default function PoultryManager() {
           <p className="text-[10px] font-black text-[#94a3b8] uppercase tracking-widest">Generated by {t.title} App &bull; {format(new Date(), 'yyyy-MM-dd HH:mm')}</p>
         </div>
       </div>
+
+      <AnimatePresence>
+        {deleteId && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-[#0f172a]/80 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-white/10 p-8 rounded-[2.5rem] max-w-sm w-full shadow-2xl"
+            >
+              <div className="w-16 h-16 bg-rose-400/10 rounded-full flex items-center justify-center mb-6 mx-auto">
+                <Trash2 size={32} className="text-rose-400" />
+              </div>
+              <h3 className="text-xl font-display font-bold text-white text-center mb-2">{t.confirmDelete}</h3>
+              <p className="text-slate-500 text-sm text-center mb-8">This action cannot be undone. The record will be permanently removed from the ledger.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  onClick={() => setDeleteId(null)}
+                  className="py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] text-white bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                >
+                  {t.cancel}
+                </button>
+                <button 
+                  onClick={() => deleteEntry(deleteId)}
+                  className="py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] text-[#0f172a] bg-rose-400 shadow-lg shadow-rose-400/20 hover:bg-rose-500 transition-all"
+                >
+                  {t.delete}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

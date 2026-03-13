@@ -53,7 +53,11 @@ export const translations = {
     needAccount: "Need an account? Sign Up",
     uploadImage: "Upload Image",
     saving: "Saving...",
-    profileUpdated: "Profile updated successfully!"
+    profileUpdated: "Profile updated successfully!",
+    editRecord: "Edit Record",
+    updateRecord: "Update Record",
+    cancelEdit: "Cancel Editing",
+    detailedHistory: "Detailed History"
   },
   fr: {
     title: "Gestionnaire de Poulets Pro",
@@ -107,6 +111,10 @@ export const translations = {
     needAccount: "Besoin d'un compte ? S'inscrire",
     uploadImage: "Télécharger une image",
     saving: "Enregistrement...",
-    profileUpdated: "Profil mis à jour avec succès !"
+    profileUpdated: "Profil mis à jour avec succès !",
+    editRecord: "Modifier le Record",
+    updateRecord: "Mettre à jour le Record",
+    cancelEdit: "Annuler la Modification",
+    detailedHistory: "Historique Détaillé"
   }
 };
