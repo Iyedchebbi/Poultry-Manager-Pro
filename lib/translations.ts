@@ -51,13 +51,35 @@ export const translations = {
     createAccount: "Create Account",
     alreadyHaveAccount: "Already have an account? Sign In",
     needAccount: "Need an account? Sign Up",
-    uploadImage: "Upload Image",
     saving: "Saving...",
     profileUpdated: "Profile updated successfully!",
     editRecord: "Edit Record",
     updateRecord: "Update Record",
     cancelEdit: "Cancel Editing",
-    detailedHistory: "Detailed History"
+    detailedHistory: "Detailed History",
+    darkMode: "Dark Mode",
+    language: "Language",
+    privacy: "Privacy Policy",
+    accountSettings: "Account Settings",
+    appSettings: "App Preferences",
+    privacyInfo: "Your data is stored securely in our encrypted cloud ledger. We never share your farm metrics with third parties.",
+    onboarding: [
+      {
+        title: "Track with Precision",
+        desc: "Monitor every egg, feed intake, and health metric with our elite ledger system.",
+      },
+      {
+        title: "Financial Mastery",
+        desc: "Analyze your revenue and expenses with professional-grade financial reports.",
+      },
+      {
+        title: "Elite Management",
+        desc: "Join the top tier of poultry farmers with our intelligent management tools.",
+      }
+    ],
+    getStarted: "Get Started",
+    next: "Next",
+    skip: "Skip",
   },
   fr: {
     title: "Gestionnaire de Poulets Pro",
@@ -109,12 +131,34 @@ export const translations = {
     createAccount: "Créer un compte",
     alreadyHaveAccount: "Déjà un compte ? Se connecter",
     needAccount: "Besoin d'un compte ? S'inscrire",
-    uploadImage: "Télécharger une image",
     saving: "Enregistrement...",
     profileUpdated: "Profil mis à jour avec succès !",
     editRecord: "Modifier le Record",
     updateRecord: "Mettre à jour le Record",
     cancelEdit: "Annuler la Modification",
-    detailedHistory: "Historique Détaillé"
+    detailedHistory: "Historique Détaillé",
+    darkMode: "Mode Sombre",
+    language: "Langue",
+    privacy: "Politique de Confidentialité",
+    accountSettings: "Paramètres du Compte",
+    appSettings: "Préférences de l'App",
+    privacyInfo: "Vos données sont stockées en toute sécurité dans notre registre cloud crypté. Nous ne partageons jamais vos mesures d'élevage avec des tiers.",
+    onboarding: [
+      {
+        title: "Suivi de Précision",
+        desc: "Surveillez chaque œuf, la consommation d'aliments et la santé avec notre système d'élite.",
+      },
+      {
+        title: "Maîtrise Financière",
+        desc: "Analysez vos revenus et dépenses avec des rapports financiers de qualité professionnelle.",
+      },
+      {
+        title: "Gestion d'Élite",
+        desc: "Rejoignez le top des aviculteurs avec nos outils de gestion intelligents.",
+      }
+    ],
+    getStarted: "Commencer",
+    next: "Suivant",
+    skip: "Passer",
   }
 };

@@ -11,7 +11,6 @@ import {
   History, 
   Trash2, 
   FileText, 
-  Image as ImageIcon,
   Plus,
   Languages,
   PieChart,
@@ -23,7 +22,10 @@ import {
   Mail,
   Settings as SettingsIcon,
   ChevronRight,
-  UserCircle
+  UserCircle,
+  Moon,
+  Sun,
+  ShieldCheck
 } from 'lucide-react';
 import { translations, Language } from '@/lib/translations';
 import html2canvas from 'html2canvas';
@@ -48,13 +50,14 @@ interface PoultryLog {
 interface Profile {
   id: string;
   full_name: string | null;
-  avatar_url: string | null;
 }
 
 export default function PoultryManager() {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
+  const [flowState, setFlowState] = useState<'splash' | 'onboarding' | 'auth' | 'app'>('splash');
+  const [onboardingStep, setOnboardingStep] = useState(0);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
@@ -65,16 +68,15 @@ export default function PoultryManager() {
   const [fullName, setFullName] = useState('');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'add' | 'reports' | 'profile'>('dashboard');
   const [isLoaded, setIsLoaded] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsView, setSettingsView] = useState<'main' | 'account' | 'privacy'>('main');
+  const [darkMode, setDarkMode] = useState(true);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
-  const [profileImage, setProfileImage] = useState<string | null>(null);
   const [editingLog, setEditingLog] = useState<PoultryLog | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
 
   const t = translations[lang];
   const userDisplayName = profile?.full_name || session?.user?.email?.split('@')[0] || 'User';
-  const userAvatar = profile?.avatar_url || null;
 
   // Auth & Session Management
   useEffect(() => {
@@ -107,8 +109,7 @@ export default function PoultryManager() {
       if (error.code === 'PGRST116') {
         const newProfile = {
           id: session.user.id,
-          full_name: session.user.user_metadata.full_name || '',
-          avatar_url: session.user.user_metadata.avatar_url || null
+          full_name: session.user.user_metadata.full_name || ''
         };
         const { data: createdData, error: createError } = await supabase
           .from('profiles')
@@ -155,8 +156,28 @@ export default function PoultryManager() {
   useEffect(() => {
     const savedLang = localStorage.getItem('poultry_lang_v5') as Language;
     if (savedLang) setLang(savedLang);
+    
+    // Splash timeout
+    const timer = setTimeout(() => {
+      const hasSeenOnboarding = localStorage.getItem('poultry_onboarding_seen');
+      if (!hasSeenOnboarding) {
+        setFlowState('onboarding');
+      } else {
+        setFlowState('auth');
+      }
+    }, 2500);
+
     setIsLoaded(true);
+    return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (session && flowState !== 'splash') {
+      setFlowState('app');
+    } else if (!session && flowState === 'app') {
+      setFlowState('auth');
+    }
+  }, [session, flowState]);
 
   useEffect(() => {
     if (isLoaded) {
@@ -179,7 +200,6 @@ export default function PoultryManager() {
         }
       });
       if (error) setAuthError(error.message);
-      else setAuthError('Check your email for the confirmation link.');
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setAuthError(error.message);
@@ -199,8 +219,7 @@ export default function PoultryManager() {
       .from('profiles')
       .upsert({
         id: session.user.id,
-        full_name: fullName,
-        avatar_url: profileImage || profile?.avatar_url
+        full_name: fullName
       })
       .select()
       .single();
@@ -211,32 +230,7 @@ export default function PoultryManager() {
     } else {
       setProfile(data);
       alert(t.profileUpdated);
-      setIsSettingsOpen(false);
-    }
-  };
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !session?.user) return;
-
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${session.user.id}-${Math.random()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
-
-      setProfileImage(publicUrl);
-    } catch (error: any) {
-      alert(error.message);
+      setSettingsView('main');
     }
   };
 
@@ -336,42 +330,161 @@ export default function PoultryManager() {
       : '0.00'
   };
 
+  const finishOnboarding = () => {
+    localStorage.setItem('poultry_onboarding_seen', 'true');
+    setFlowState('auth');
+  };
+
   if (!isLoaded || loadingAuth) return null;
+
+  // Splash Screen
+  if (flowState === 'splash') {
+    return (
+      <div className="fixed inset-0 bg-[#020617] flex items-center justify-center z-[200]">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.5 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="text-center"
+        >
+          <div className="w-24 h-24 bg-[#ccff00] rounded-[2.5rem] flex items-center justify-center text-[#0f172a] shadow-[0_0_50px_rgba(204,255,0,0.2)] mx-auto mb-6">
+            <Bird size={48} strokeWidth={2} />
+          </div>
+          <motion.h1 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="text-3xl font-display font-bold text-white tracking-tighter"
+          >
+            {t.title}
+          </motion.h1>
+          <motion.p 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.5 }}
+            transition={{ delay: 0.8 }}
+            className="text-[10px] font-black uppercase tracking-[0.4em] text-white mt-2"
+          >
+            {t.company}
+          </motion.p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Onboarding Screen
+  if (flowState === 'onboarding') {
+    return (
+      <div className="min-h-[100dvh] bg-[#020617] text-white flex flex-col p-8 sm:max-w-md sm:mx-auto relative overflow-hidden">
+        <div className="absolute top-[-10%] right-[-10%] w-64 h-64 bg-[#ccff00]/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-64 h-64 bg-[#ccff00]/5 rounded-full blur-3xl" />
+        
+        <div className="flex-1 flex flex-col justify-center">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={onboardingStep}
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -50 }}
+              className="space-y-8"
+            >
+              <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center text-[#ccff00] border border-white/10">
+                {onboardingStep === 0 && <Egg size={40} />}
+                {onboardingStep === 1 && <Coins size={40} />}
+                {onboardingStep === 2 && <Bird size={40} />}
+              </div>
+              <div className="space-y-4">
+                <h2 className="text-4xl font-display font-bold leading-tight">
+                  {t.onboarding[onboardingStep].title}
+                </h2>
+                <p className="text-slate-400 text-lg leading-relaxed">
+                  {t.onboarding[onboardingStep].desc}
+                </p>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        <div className="space-y-6 pb-12">
+          <div className="flex gap-2">
+            {[0, 1, 2].map((i) => (
+              <div 
+                key={i} 
+                className={`h-1 rounded-full transition-all duration-500 ${i === onboardingStep ? 'w-8 bg-[#ccff00]' : 'w-2 bg-white/10'}`} 
+              />
+            ))}
+          </div>
+          
+          <div className="flex items-center justify-between">
+            <button 
+              onClick={finishOnboarding}
+              className="text-sm font-bold text-slate-500 hover:text-white transition-colors"
+            >
+              {t.skip}
+            </button>
+            <button 
+              onClick={() => {
+                if (onboardingStep < 2) setOnboardingStep(onboardingStep + 1);
+                else finishOnboarding();
+              }}
+              className="bg-[#ccff00] text-[#0f172a] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] flex items-center gap-2 shadow-lg shadow-[#ccff00]/20"
+            >
+              {onboardingStep === 2 ? t.getStarted : t.next}
+              <ChevronRight size={16} strokeWidth={3} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Render Auth Screen if not logged in
   if (!session) {
     return (
-      <div className="min-h-[100dvh] w-full bg-[#020617] text-white flex flex-col items-center justify-center p-6 sm:max-w-md sm:mx-auto sm:border-x sm:border-white/5">
+      <div className="min-h-[100dvh] w-full bg-[#020617] text-white flex flex-col items-center justify-center p-6 sm:max-w-md sm:mx-auto relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_50%,rgba(204,255,0,0.05),transparent_70%)]" />
+        
         <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-sm space-y-8"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-sm space-y-8 relative z-10"
         >
           <div className="text-center">
-            <div className="w-20 h-20 bg-white/5 rounded-[2rem] flex items-center justify-center text-[#ccff00] border border-white/10 mx-auto mb-6 shadow-[0_0_30px_rgba(204,255,0,0.1)]">
-              <Bird size={40} strokeWidth={1.5} className="drop-shadow-[0_0_8px_rgba(204,255,0,0.5)]" />
-            </div>
+            <motion.div 
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              className="w-20 h-20 bg-white/5 rounded-[2rem] flex items-center justify-center text-[#ccff00] border border-white/10 mx-auto mb-6 shadow-[0_0_30px_rgba(204,255,0,0.1)]"
+            >
+              <Bird size={40} strokeWidth={1.5} />
+            </motion.div>
             <h1 className="text-4xl font-display font-bold text-white tracking-tight mb-2">{t.title}</h1>
             <p className="text-[#0f172a] text-[10px] font-black uppercase tracking-[0.2em] bg-[#ccff00] inline-block px-3 py-1 rounded-full">{t.company}</p>
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4 bg-white/5 p-8 rounded-[2.5rem] shadow-2xl border border-white/10 backdrop-blur-xl">
-            {isSignUp && (
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{t.fullName}</label>
-                <div className="relative">
-                  <User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" />
-                  <input 
-                    type="text" 
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required 
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-5 py-4 text-sm font-medium text-white focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all"
-                    placeholder="John Doe"
-                  />
-                </div>
-              </div>
-            )}
+            <AnimatePresence mode="wait">
+              {isSignUp && (
+                <motion.div 
+                  key="signup-fields"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="space-y-1.5 overflow-hidden"
+                >
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{t.fullName}</label>
+                  <div className="relative">
+                    <User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" />
+                    <input 
+                      type="text" 
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      required 
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-5 py-4 text-sm font-medium text-white focus:border-[#ccff00] focus:ring-4 focus:ring-[#ccff00]/10 outline-none transition-all"
+                      placeholder="John Doe"
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <div className="space-y-1.5">
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">Email</label>
@@ -437,7 +550,11 @@ export default function PoultryManager() {
       
       {/* Top Header */}
       <header className="pt-safe px-6 pb-4 flex justify-between items-center z-10 bg-[#020617]/80 backdrop-blur-xl border-b border-white/5 sticky top-0">
-        <div className="flex items-center gap-3">
+        <motion.div 
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="flex items-center gap-3"
+        >
           <div className="w-10 h-10 bg-[#ccff00] rounded-xl flex items-center justify-center text-[#0f172a] shadow-lg shadow-[#ccff00]/10">
             <Bird size={20} strokeWidth={2.5} />
           </div>
@@ -445,9 +562,13 @@ export default function PoultryManager() {
             <h1 className="text-lg font-display font-bold text-white leading-tight">{t.title}</h1>
             <p className="text-[#0f172a] text-[9px] font-black uppercase tracking-widest bg-[#ccff00] px-2 py-0.5 rounded-full inline-block">{t.company}</p>
           </div>
-        </div>
+        </motion.div>
         
-        <div className="flex items-center gap-3">
+        <motion.div 
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="flex items-center gap-3"
+        >
           {/* Language Selector */}
           <div className="relative">
             <select 
@@ -468,7 +589,7 @@ export default function PoultryManager() {
           >
             <User size={18} strokeWidth={2.5} />
           </button>
-        </div>
+        </motion.div>
       </header>
 
 
@@ -503,7 +624,13 @@ export default function PoultryManager() {
                   { label: t.efficiency, value: `${stats.efficiency}%`, icon: Activity, color: 'text-[#0f172a]', bg: 'bg-[#ccff00]' },
                   { label: t.costPerEgg, value: `${stats.costPerEgg} TND`, icon: TrendingUp, color: 'text-slate-500', bg: 'bg-white/5' }
                 ].map((stat, i) => (
-                  <div key={i} className={`${stat.bg} p-5 rounded-[2rem] border border-white/10 flex flex-col justify-between aspect-square shadow-sm`}>
+                  <motion.div 
+                    key={i}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    className={`${stat.bg} p-5 rounded-[2rem] border border-white/10 flex flex-col justify-between aspect-square shadow-sm`}
+                  >
                     <div className="flex justify-between items-start">
                       <div className={`w-10 h-10 ${stat.bg === 'bg-[#ccff00]' ? 'bg-[#0f172a]/10' : 'bg-white/5'} rounded-2xl flex items-center justify-center`}>
                         <stat.icon size={18} className={stat.bg === 'bg-[#ccff00]' ? 'text-[#0f172a]/50' : 'text-slate-500'} />
@@ -513,7 +640,7 @@ export default function PoultryManager() {
                       <h3 className={`text-2xl font-display font-bold mb-1 ${stat.color}`}>{stat.value}</h3>
                       <p className={`text-[9px] font-black uppercase tracking-widest ${stat.bg === 'bg-[#ccff00]' ? 'text-[#0f172a]/40' : 'text-slate-500'}`}>{stat.label}</p>
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
 
@@ -526,7 +653,13 @@ export default function PoultryManager() {
                 
                 <div className="space-y-3">
                   {logs.length > 0 ? logs.slice(0, 5).map((log, i) => (
-                    <div key={log.id} className="bg-white/5 border border-white/10 p-4 rounded-[1.5rem] flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+                    <motion.div 
+                      key={log.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.4 + (i * 0.1) }}
+                      className="bg-white/5 border border-white/10 p-4 rounded-[1.5rem] flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow"
+                    >
                       <div className="bg-[#ccff00] w-12 h-12 rounded-2xl flex flex-col items-center justify-center border border-white/10">
                         <span className="text-sm font-display font-bold text-[#0f172a] leading-none">{log.date.split('-')[2]}</span>
                         <span className="text-[8px] font-black uppercase text-[#0f172a]/40 mt-1">{format(new Date(log.date), 'MMM')}</span>
@@ -553,7 +686,7 @@ export default function PoultryManager() {
                           <Trash2 size={14} />
                         </button>
                       </div>
-                    </div>
+                    </motion.div>
                   )) : (
                     <div className="py-16 text-center bg-white/5 rounded-[2.5rem] border border-white/10 shadow-sm">
                       <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -645,12 +778,21 @@ export default function PoultryManager() {
               exit={{ opacity: 0, x: 20 }}
               className="p-6 space-y-8"
             >
-              <div className="mb-8">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-8"
+              >
                 <h2 className="text-3xl font-display font-bold text-white tracking-tight mb-2">{t.reports}</h2>
                 <p className="text-xs text-slate-500 font-medium">Comprehensive performance analysis.</p>
-              </div>
+              </motion.div>
 
-              <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-8 shadow-xl backdrop-blur-xl">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="bg-white/5 border border-white/10 rounded-[2.5rem] p-8 space-y-8 shadow-xl backdrop-blur-xl"
+              >
                 <div className="flex items-center gap-3 border-b border-white/5 pb-6">
                   <div className="w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center text-[#ccff00]">
                     <Coins size={20} strokeWidth={2.5} />
@@ -672,9 +814,14 @@ export default function PoultryManager() {
                     <span className="text-4xl font-display font-bold text-white">{(logs.reduce((a,b)=>a+b.income,0) - logs.reduce((a,b)=>a+b.expense,0)).toFixed(2)} <span className="text-sm">TND</span></span>
                   </div>
                 </div>
-              </div>
+              </motion.div>
 
-              <div className="bg-[#ccff00] border border-white/10 rounded-[2.5rem] p-8 space-y-8 shadow-2xl">
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="bg-[#ccff00] border border-white/10 rounded-[2.5rem] p-8 space-y-8 shadow-2xl"
+              >
                 <div className="flex items-center gap-3 border-b border-[#0f172a]/5 pb-6">
                   <div className="w-10 h-10 bg-[#0f172a]/5 rounded-2xl flex items-center justify-center text-[#0f172a]">
                     <Activity size={20} strokeWidth={2.5} />
@@ -704,7 +851,7 @@ export default function PoultryManager() {
                     </div>
                   </div>
                 </div>
-              </div>
+              </motion.div>
 
               {/* Detailed History in Reports */}
               <div className="space-y-4">
@@ -753,16 +900,16 @@ export default function PoultryManager() {
               exit={{ opacity: 0, y: 20 }}
               className="p-6 space-y-8"
             >
-              {!isSettingsOpen ? (
+              {settingsView === 'main' ? (
                 <>
                   <div className="text-center pt-8">
                     <div className="relative inline-block">
-                      <div className="w-32 h-32 bg-white/5 rounded-[3rem] shadow-2xl border border-white/10 flex items-center justify-center text-white mx-auto mb-6 overflow-hidden">
-                        {userAvatar ? (
-                          <img src={userAvatar} alt="Avatar" className="w-full h-full object-cover" />
-                        ) : (
-                          <User size={64} strokeWidth={1.5} />
-                        )}
+                      <div className="w-32 h-32 bg-white/5 rounded-[3rem] shadow-2xl border border-white/10 flex items-center justify-center text-white mx-auto mb-6 overflow-hidden group">
+                        <User size={64} strokeWidth={1.5} className="group-hover:scale-110 transition-transform duration-500" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#ccff00]/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-[#ccff00] rounded-2xl flex items-center justify-center text-[#0f172a] border-4 border-[#020617] shadow-lg">
+                        <ShieldCheck size={18} strokeWidth={2.5} />
                       </div>
                     </div>
                     <h2 className="text-3xl font-display font-bold text-white tracking-tight">{userDisplayName}</h2>
@@ -771,55 +918,88 @@ export default function PoultryManager() {
 
                   <div className="space-y-3">
                     {[
-                      { label: t.settings, icon: SettingsIcon, color: 'text-white', onClick: () => setIsSettingsOpen(true) },
+                      { label: t.accountSettings, icon: UserCircle, color: 'text-white', onClick: () => setSettingsView('account') },
+                      { label: t.appSettings, icon: SettingsIcon, color: 'text-white', onClick: () => {} }, // Placeholder for main settings
+                      { label: t.privacy, icon: ShieldCheck, color: 'text-white', onClick: () => setSettingsView('privacy') },
                       { label: t.logout, icon: LogOut, color: 'text-rose-400', onClick: handleLogout }
                     ].map((item, i) => (
-                      <button 
+                      <motion.button 
                         key={i} 
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.1 }}
                         onClick={item.onClick}
-                        className="w-full bg-white/5 border border-white/10 p-5 rounded-3xl flex items-center justify-between shadow-sm hover:shadow-md active:scale-[0.99] transition-all backdrop-blur-xl"
+                        className="w-full bg-white/5 border border-white/10 p-5 rounded-3xl flex items-center justify-between shadow-sm hover:shadow-md active:scale-[0.99] transition-all backdrop-blur-xl group"
                       >
                         <div className="flex items-center gap-4">
-                          <div className={`w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center ${item.color}`}>
+                          <div className={`w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center ${item.color} group-hover:bg-[#ccff00]/10 group-hover:text-[#ccff00] transition-colors`}>
                             <item.icon size={18} strokeWidth={2.5} />
                           </div>
-                          <span className={`text-sm font-bold uppercase tracking-widest ${item.color}`}>{item.label}</span>
+                          <span className={`text-sm font-bold uppercase tracking-widest ${item.color} group-hover:text-white transition-colors`}>{item.label}</span>
                         </div>
-                        <ChevronRight size={16} className="text-slate-700" />
-                      </button>
+                        <ChevronRight size={16} className="text-slate-700 group-hover:text-[#ccff00] transition-colors" />
+                      </motion.button>
                     ))}
                   </div>
+
+                  {/* App Preferences Section */}
+                  <div className="pt-4 space-y-4">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">{t.appSettings}</h3>
+                    <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-2 space-y-1">
+                      <div className="flex items-center justify-between p-4 rounded-3xl hover:bg-white/5 transition-colors">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center text-slate-400">
+                            {darkMode ? <Moon size={18} /> : <Sun size={18} />}
+                          </div>
+                          <span className="text-sm font-bold uppercase tracking-widest text-white">{t.darkMode}</span>
+                        </div>
+                        <button 
+                          onClick={() => setDarkMode(!darkMode)}
+                          className={`w-12 h-6 rounded-full transition-colors relative ${darkMode ? 'bg-[#ccff00]' : 'bg-slate-700'}`}
+                        >
+                          <motion.div 
+                            animate={{ x: darkMode ? 26 : 4 }}
+                            className={`absolute top-1 w-4 h-4 rounded-full ${darkMode ? 'bg-[#0f172a]' : 'bg-white'}`}
+                          />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between p-4 rounded-3xl hover:bg-white/5 transition-colors">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-white/5 rounded-2xl flex items-center justify-center text-slate-400">
+                            <Languages size={18} />
+                          </div>
+                          <span className="text-sm font-bold uppercase tracking-widest text-white">{t.language}</span>
+                        </div>
+                        <select 
+                          value={lang} 
+                          onChange={(e) => setLang(e.target.value as Language)}
+                          className="bg-transparent text-[#ccff00] text-[10px] font-black uppercase outline-none"
+                        >
+                          <option value="en">English</option>
+                          <option value="fr">Français</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
                 </>
-              ) : (
-                <div className="space-y-8">
+              ) : settingsView === 'account' ? (
+                <motion.div 
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="space-y-8"
+                >
                   <div className="flex items-center gap-4">
                     <button 
-                      onClick={() => setIsSettingsOpen(false)}
+                      onClick={() => setSettingsView('main')}
                       className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-slate-500 hover:text-white transition-colors"
                     >
                       <ChevronRight size={20} className="rotate-180" />
                     </button>
-                    <h2 className="text-2xl font-display font-bold text-white">{t.settings}</h2>
+                    <h2 className="text-2xl font-display font-bold text-white">{t.accountSettings}</h2>
                   </div>
 
                   <form onSubmit={handleUpdateProfile} className="space-y-6 bg-white/5 p-8 rounded-[2.5rem] border border-white/10 backdrop-blur-xl">
-                    <div className="flex flex-col items-center mb-6">
-                      <div className="relative group">
-                        <div className="w-24 h-24 bg-white/5 rounded-[2rem] border border-white/10 flex items-center justify-center text-white overflow-hidden">
-                          {profileImage || userAvatar ? (
-                            <img src={profileImage || userAvatar} alt="Avatar" className="w-full h-full object-cover" />
-                          ) : (
-                            <User size={40} strokeWidth={1.5} />
-                          )}
-                        </div>
-                        <label className="absolute bottom-0 right-0 w-8 h-8 bg-[#ccff00] rounded-xl flex items-center justify-center text-[#0f172a] cursor-pointer shadow-lg hover:scale-110 transition-transform">
-                          <Plus size={16} strokeWidth={3} />
-                          <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                        </label>
-                      </div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mt-3">{t.uploadImage}</p>
-                    </div>
-
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-1">{t.fullName}</label>
                       <input 
@@ -849,7 +1029,42 @@ export default function PoultryManager() {
                       {isUpdatingProfile ? t.saving : t.save}
                     </button>
                   </form>
-                </div>
+                </motion.div>
+              ) : (
+                <motion.div 
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="space-y-8"
+                >
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => setSettingsView('main')}
+                      className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-slate-500 hover:text-white transition-colors"
+                    >
+                      <ChevronRight size={20} className="rotate-180" />
+                    </button>
+                    <h2 className="text-2xl font-display font-bold text-white">{t.privacy}</h2>
+                  </div>
+
+                  <div className="bg-white/5 p-8 rounded-[2.5rem] border border-white/10 backdrop-blur-xl space-y-6">
+                    <div className="w-16 h-16 bg-[#ccff00]/10 rounded-2xl flex items-center justify-center text-[#ccff00] mx-auto mb-4">
+                      <ShieldCheck size={32} />
+                    </div>
+                    <p className="text-slate-400 text-sm leading-relaxed text-center">
+                      {t.privacyInfo}
+                    </p>
+                    <div className="pt-6 border-t border-white/5 space-y-4">
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        <span>Encryption</span>
+                        <span className="text-emerald-400">Active</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        <span>Cloud Storage</span>
+                        <span className="text-emerald-400">Supabase Secure</span>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
               )}
 
               <div className="pt-8 text-center">
@@ -866,29 +1081,43 @@ export default function PoultryManager() {
       <div className="absolute bottom-0 w-full pb-safe pt-3 px-6 bg-[#020617]/90 backdrop-blur-2xl border-t border-white/5 z-50 flex justify-around items-center">
         <button 
           onClick={() => setActiveTab('dashboard')} 
-          className={`flex flex-col items-center gap-1 p-2 transition-all ${activeTab === 'dashboard' ? 'text-white' : 'text-slate-600 hover:text-slate-500'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-all relative ${activeTab === 'dashboard' ? 'text-white' : 'text-slate-600 hover:text-slate-500'}`}
         >
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${activeTab === 'dashboard' ? 'bg-[#ccff00] shadow-lg shadow-[#ccff00]/20' : ''}`}>
+          <div className="w-12 h-12 flex items-center justify-center relative z-10">
             <Home size={22} strokeWidth={activeTab === 'dashboard' ? 2.5 : 2} className={activeTab === 'dashboard' ? 'text-[#0f172a]' : ''} />
           </div>
-          <span className="text-[8px] font-black uppercase tracking-widest mt-1">Home</span>
+          {activeTab === 'dashboard' && (
+            <motion.div 
+              layoutId="nav-pill"
+              className="absolute inset-0 bg-[#ccff00] rounded-2xl shadow-lg shadow-[#ccff00]/20"
+              transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+            />
+          )}
+          <span className="text-[8px] font-black uppercase tracking-widest mt-1 relative z-10">Home</span>
         </button>
         
         <button 
           onClick={() => setActiveTab('add')} 
-          className="relative -top-6 w-16 h-16 bg-[#ccff00] rounded-[2rem] flex items-center justify-center text-[#0f172a] shadow-2xl shadow-[#ccff00]/30 active:scale-90 transition-all border-4 border-[#020617]"
+          className="relative -top-6 w-16 h-16 bg-[#ccff00] rounded-[2rem] flex items-center justify-center text-[#0f172a] shadow-2xl shadow-[#ccff00]/30 active:scale-90 transition-all border-4 border-[#020617] group"
         >
-          <Plus size={32} strokeWidth={3} />
+          <Plus size={32} strokeWidth={3} className="group-hover:rotate-90 transition-transform duration-500" />
         </button>
         
         <button 
           onClick={() => setActiveTab('reports')} 
-          className={`flex flex-col items-center gap-1 p-2 transition-all ${activeTab === 'reports' ? 'text-white' : 'text-slate-600 hover:text-slate-500'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-all relative ${activeTab === 'reports' ? 'text-white' : 'text-slate-600 hover:text-slate-500'}`}
         >
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${activeTab === 'reports' ? 'bg-[#ccff00] shadow-lg shadow-[#ccff00]/20' : ''}`}>
+          <div className="w-12 h-12 flex items-center justify-center relative z-10">
             <PieChart size={22} strokeWidth={activeTab === 'reports' ? 2.5 : 2} className={activeTab === 'reports' ? 'text-[#0f172a]' : ''} />
           </div>
-          <span className="text-[8px] font-black uppercase tracking-widest mt-1">Reports</span>
+          {activeTab === 'reports' && (
+            <motion.div 
+              layoutId="nav-pill"
+              className="absolute inset-0 bg-[#ccff00] rounded-2xl shadow-lg shadow-[#ccff00]/20"
+              transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+            />
+          )}
+          <span className="text-[8px] font-black uppercase tracking-widest mt-1 relative z-10">Reports</span>
         </button>
       </div>
 
